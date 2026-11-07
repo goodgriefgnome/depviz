@@ -5,7 +5,23 @@ Modules are grouped into their folders. Folders can be collapsed into a single
 box, and the imports in and out of them merge into one arrow with a count.
 Nodes can be dragged, and the layout is remembered.
 
-**Status:** early. The data model and the DOT importer are in place; the viewer is next.
+**Status:** early but usable: open a DOT file and explore it.
+
+## Using it
+
+Run `npm run dev` (or open a build), then drop a DOT file on the page, choose
+one, paste DOT, or try the sample.
+
+- Drag modules or whole folders. Positions and collapsed folders are kept in
+  your browser, per graph, and the last file opened comes back on reload.
+- Double-click a folder to collapse it into one box; arrows into and out of it
+  merge, with a count. **Depth** collapses every folder at one level.
+- Click a module or folder to highlight what it depends on (blue) and what
+  depends on it (orange). Click an arrow to see the dependencies it stands for.
+- Three layouts (computed by ELK in a web worker): **Layered**, **By folder**
+  and **Organic**. With **Re-arrange on collapse** off, your own placement is
+  kept when folders collapse or expand.
+- Import cycles are drawn as red dashed arrows.
 
 ## Loading a graph
 
@@ -49,3 +65,6 @@ Source layout:
 
 - `src/model/` – the graph types, folder tree builder and cycle detection.
 - `src/importers/` – file format readers (DOT so far).
+- `src/view/` – the view model (collapsing, merged arrows, saved positions),
+  ELK layouts, and the Cytoscape graph view.
+- `src/ui/` – the side panel and the open screen. `src/app.ts` wires it all up.

@@ -1,3 +1,8 @@
-// Placeholder entry point. The viewer from the prototype moves here in a later step.
-const app = document.getElementById("app");
-if (app) app.textContent = "depviz: viewer coming soon.";
+import "@fontsource/ibm-plex-sans/400.css";
+import "@fontsource/ibm-plex-sans/600.css";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-mono/500.css";
+import "./styles.css";
+import { startApp } from "./app";
+
+startApp(document.getElementById("app")!);
