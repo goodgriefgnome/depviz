@@ -1,8 +1,8 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  // Relative asset paths so the build works from any sub-path (e.g. GitHub Pages).
-  base: "./",
+  // Served from https://goodgriefgnome.github.io/depviz/ (GitHub Pages for this repo).
+  base: "/depviz/",
   build: {
     // Cytoscape alone is ~430 kB minified; the app is one screen, so splitting gains little.
     chunkSizeWarningLimit: 800,

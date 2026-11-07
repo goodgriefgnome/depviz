@@ -52,6 +52,9 @@ inferred from `/` in its id: `src/lib/api/client.js` lands in
 `src/` → `lib/` → `api/`. Chains of folders that hold only a single folder
 (e.g. `home/me/project/`) are merged into one.
 
+Live at **https://goodgriefgnome.github.io/depviz/**. Every push to `main` runs
+the tests, builds, and deploys there (`.github/workflows/deploy.yml`).
+
 ## Development
 
 ```bash
