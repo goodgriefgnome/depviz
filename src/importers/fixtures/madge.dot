@@ -1,0 +1,15 @@
+digraph G {
+  overlap=false;
+  pad=0.3;
+  rankdir=LR;
+  layout=dot;
+  node [style=rounded, fontname="Arial", fontsize=14, shape=box, color="#c6c5fe", fontcolor="#c6c5fe"];
+  edge [color="#757575"];
+  "src/lib/api/client.js" [color="#ff6c60"];
+  "src/main.js";
+  "src/ui/button.js" [color="#ff6c60"];
+  "src/lib/api/client.js" -> "src/ui/button.js" [color="#ff6c60"];
+  "src/main.js" -> "src/lib/api/client.js";
+  "src/main.js" -> "src/ui/button.js";
+  "src/ui/button.js" -> "src/lib/api/client.js" [color="#ff6c60"];
+}
