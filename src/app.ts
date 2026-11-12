@@ -1,6 +1,9 @@
 import { parseDot } from "./importers/dot";
 import { ImportError } from "./importers/types";
 import { buildHierarchy } from "./model/hierarchy";
+import { countTests, withoutTests } from "./model/tests";
+import type { DepGraph } from "./model/types";
+import { analyseProject, type ProjectInput } from "./project";
 import sampleDot from "./sample/acme-shop.dot?raw";
 import * as storage from "./storage";
 import { h } from "./ui/dom";
@@ -18,7 +21,12 @@ export function startApp(root: HTMLElement): void {
   const prefs = storage.loadPrefs();
   let layout: LayoutName = prefs.layout && prefs.layout in LAYOUT_NAMES ? prefs.layout : "layered";
   let autoArrange = prefs.autoArrange ?? true;
+  let showTests = prefs.showTests ?? false;
   let key = "";
+  /** The graph as loaded, tests included; what's shown may leave them out. */
+  let graph: DepGraph | undefined;
+  let graphName = "";
+  let importWarnings: string[] = [];
   let warnings: string[] = [];
   let selection: Selection = null;
   let busy = false;
@@ -37,6 +45,9 @@ export function startApp(root: HTMLElement): void {
     ),
   );
   const auto = h("input", { id: "auto", type: "checkbox" });
+  const testsBox = h("input", { id: "tests", type: "checkbox" });
+  const testsCount = h("span", { class: "muted" });
+  const testsToggle = h("label", { class: "toggle", for: "tests", hidden: true }, testsBox, "Show tests", testsCount);
   const toolbar = h(
     "header",
     { class: "bar" },
@@ -53,6 +64,7 @@ export function startApp(root: HTMLElement): void {
       h("button", { class: "btn", type: "button", onclick: () => view.fit() }, "Fit"),
     ),
     h("label", { class: "toggle", for: "auto" }, auto, "Re-arrange on collapse"),
+    testsToggle,
   );
 
   // ----- Stage and panel -----
@@ -64,10 +76,13 @@ export function startApp(root: HTMLElement): void {
 
   const loader = new Loader({
     load: (text, name) => load(text, name),
+    loadProject: (project) => loadProject(project),
     loadSample: () => {
       load(sampleDot, "acme-shop.dot (sample)");
     },
-    close: () => loader.hide(),
+    close: () => {
+      loader.hide();
+    },
   });
 
   root.replaceChildren(toolbar, work, loader.el);
@@ -92,6 +107,7 @@ export function startApp(root: HTMLElement): void {
   view.autoArrange = autoArrange;
 
   // ----- Actions -----
+  /** Opens DOT text. Returns an error message, or null on success. */
   function load(text: string, name: string): string | null {
     let result;
     try {
@@ -99,23 +115,55 @@ export function startApp(root: HTMLElement): void {
     } catch (err) {
       return err instanceof ImportError ? err.message : `Something went wrong reading the file: ${String(err)}`;
     }
-    const hierarchy = buildHierarchy(result.graph);
-    if (hierarchy.nodes.size === 0) return "The graph has no nodes.";
-    warnings = [...result.warnings, ...hierarchy.warnings];
+    const error = open(result.graph, result.warnings, name);
+    if (!error) storage.saveLastFile({ name, text });
+    return error;
+  }
+
+  /** Opens a folder or archive's files. Returns an error message, or null on success. */
+  function loadProject(project: ProjectInput): string | null {
+    let result;
+    try {
+      result = analyseProject(project);
+    } catch (err) {
+      return err instanceof ImportError ? err.message : `Something went wrong reading the project: ${String(err)}`;
+    }
+    const error = open(result.graph, result.warnings, project.name);
+    if (!error) storage.saveLastFile({ name: project.name, graph: result.graph, warnings: result.warnings });
+    return error;
+  }
+
+  function open(g: DepGraph, notes: string[], name: string): string | null {
+    if (g.nodes.length === 0 && g.edges.length === 0) return "The graph has no nodes.";
+    graph = g;
+    graphName = name;
+    importWarnings = notes;
+    show();
+    loader.hide();
+    return null;
+  }
+
+  /** Shows the loaded graph, with or without tests, restoring its saved view. */
+  function show(): void {
+    if (!graph) return;
+    const tests = countTests(graph);
+    const shown = tests && !showTests ? withoutTests(graph) : graph;
+    // A graph that is all tests is shown with them rather than empty.
+    const hierarchy = buildHierarchy(shown.nodes.length ? shown : graph);
+    warnings = [...importWarnings, ...hierarchy.warnings];
     key = storage.graphKey(hierarchy);
     const saved = storage.loadView(key);
     const vm = new ViewModel(hierarchy, saved);
     if (!saved) vm.setLevel(vm.pickLevel(START_BOXES));
-    const label = result.graph.label ?? name;
+    const label = graph.label ?? graphName;
     title.textContent = label;
     document.title = `${label} · depviz`;
     search.value = "";
     matches.textContent = "";
+    testsToggle.hidden = tests === 0;
+    testsCount.textContent = `(${tests.toLocaleString()})`;
     view.setModel(vm);
-    storage.saveLastFile({ name, text });
-    loader.hide();
     syncControls();
-    return null;
   }
 
   function openLoader(): void {
@@ -157,6 +205,7 @@ export function startApp(root: HTMLElement): void {
     const vm = view.model;
     for (const b of layoutSeg.querySelectorAll<HTMLButtonElement>("[data-layout]")) b.setAttribute("aria-pressed", String(b.dataset.layout === layout));
     auto.checked = autoArrange;
+    testsBox.checked = showTests;
     levels.replaceChildren();
     if (!vm || vm.maxContainerDepth < 0) {
       levels.append(h("span", { class: "lbl muted" }, "no folders"));
@@ -195,7 +244,7 @@ export function startApp(root: HTMLElement): void {
   }
 
   function savePrefs(): void {
-    storage.savePrefs({ layout, autoArrange });
+    storage.savePrefs({ layout, autoArrange, showTests });
   }
 
   // ----- Wiring -----
@@ -204,6 +253,11 @@ export function startApp(root: HTMLElement): void {
     view.autoArrange = autoArrange;
     savePrefs();
     if (autoArrange) void view.relayout();
+  });
+  testsBox.addEventListener("change", () => {
+    showTests = testsBox.checked;
+    savePrefs();
+    show();
   });
   search.addEventListener("input", () => showMatches(view.search(search.value)));
   search.addEventListener("keydown", (e) => {
@@ -225,7 +279,9 @@ export function startApp(root: HTMLElement): void {
   drawHud();
   syncControls();
   const last = storage.loadLastFile();
-  const error = last ? load(last.text, last.name) : "no file";
+  let error: string | null = "no file";
+  if (last && "graph" in last) error = open(last.graph, last.warnings ?? [], last.name);
+  else if (last) error = load(last.text, last.name);
   if (error) {
     if (last) storage.forgetLastFile();
     openLoader();

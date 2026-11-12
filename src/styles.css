@@ -160,6 +160,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, label.btn:foc
   padding: 10px; font-family: var(--mono); font-size: 12px; line-height: 1.5;
 }
 .load-error { margin: 0; color: var(--cycle); font-size: 13px; }
+.load-status { margin: 0; font-size: 13px; color: var(--accent); }
+.hint { margin: 0; font-size: 13px; color: var(--muted); }
+.hint strong { color: var(--fg); font-weight: 600; }
+.toggle .muted { color: var(--muted); }
 .howto { font-size: 13px; color: var(--muted); line-height: 1.5; }
 .howto summary { cursor: pointer; color: var(--fg); }
 .howto ul { padding-left: 18px; display: grid; gap: 4px; }

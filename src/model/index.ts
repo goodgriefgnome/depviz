@@ -3,3 +3,4 @@ export { buildHierarchy, pathSegments, descendants, ancestors } from "./hierarch
 export type { Hierarchy, TreeNode, HierarchyOptions } from "./hierarchy";
 export { findCycles } from "./analysis";
 export type { CycleInfo } from "./analysis";
+export { isTestPath, countTests, withoutTests } from "./tests";

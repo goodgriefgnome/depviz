@@ -1,4 +1,5 @@
 import type { Hierarchy } from "./model/hierarchy";
+import type { DepGraph } from "./model/types";
 import type { LayoutName } from "./view/layout";
 import type { SavedView } from "./view/model";
 
@@ -44,18 +45,31 @@ export const clearView = (key: string) => {
 export interface Prefs {
   layout: LayoutName;
   autoArrange: boolean;
+  showTests: boolean;
 }
 export const loadPrefs = (): Partial<Prefs> => read<Partial<Prefs>>("depviz:prefs") ?? {};
 export const savePrefs = (p: Prefs) => write("depviz:prefs", p);
 
-/** The last file opened, so a reload comes back to it. Large files are not kept. */
-export interface LastFile {
-  name: string;
-  text: string;
-}
+/**
+ * The last graph opened, so a reload comes back to it: DOT as text, a project as the graph read
+ * from it (the source files themselves are not kept). Large ones are not kept.
+ */
+export type LastFile = { name: string; text: string; warnings?: undefined } | { name: string; graph: DepGraph; warnings: string[] };
 const MAX_REMEMBERED = 2_000_000;
 export const loadLastFile = () => read<LastFile>("depviz:last");
-export const saveLastFile = (f: LastFile) => (f.text.length <= MAX_REMEMBERED ? write("depviz:last", f) : false);
+export const saveLastFile = (f: LastFile): boolean => {
+  const json = JSON.stringify(f);
+  if (json.length > MAX_REMEMBERED) {
+    forgetLastFile();
+    return false;
+  }
+  try {
+    localStorage.setItem("depviz:last", json);
+    return true;
+  } catch {
+    return false;
+  }
+};
 export const forgetLastFile = () => {
   try {
     localStorage.removeItem("depviz:last");
