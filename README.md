@@ -20,6 +20,11 @@ or try the sample.
   merge, with a count. **Depth** collapses every folder at one level.
 - Click a module or folder to highlight what it depends on (blue) and what
   depends on it (orange). Click an arrow to see the dependencies it stands for.
+- Shift-click (or Ctrl/Cmd-click) to add or remove modules and folders, or
+  shift-drag a box on the background, to select several at once. The
+  highlight and the panel then show what the selection as a whole depends on
+  and is used by. Enter in the search box selects every match; Esc clears the
+  selection.
 - Three layouts (computed by ELK in a web worker): **Layered**, **By folder**
   and **Organic**. With **Re-arrange on collapse** off, your own placement is
   kept when folders collapse or expand.

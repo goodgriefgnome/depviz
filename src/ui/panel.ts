@@ -3,7 +3,13 @@ import type { ViewModel } from "../view/model";
 import { h } from "./dom";
 
 export interface PanelActions {
+  /** Selects one node (or the collapsed folder holding it) and centres on it. */
   reveal(id: string): void;
+  /** Adds a node to the selection, or removes it if it's already selected. */
+  toggleSelected(id: string): void;
+  /** Adds a node (or the collapsed folder holding it) to the selection. */
+  addToSelection(id: string): void;
+  clearSelection(): void;
   toggle(id: string): void;
   resetLayout(): void;
 }
@@ -15,7 +21,8 @@ export function renderPanel(el: HTMLElement, view: GraphView, sel: Selection, wa
     el.replaceChildren();
     return;
   }
-  if (sel?.type === "node") el.replaceChildren(...nodeDetail(vm, view, sel, actions));
+  if (sel?.type === "nodes" && sel.ids.length === 1) el.replaceChildren(...nodeDetail(vm, view, sel, sel.ids[0]!, actions));
+  else if (sel?.type === "nodes") el.replaceChildren(...multiDetail(vm, view, sel, actions));
   else if (sel?.type === "edge") el.replaceChildren(...edgeDetail(vm, view, sel.edge));
   else el.replaceChildren(...overview(vm, warnings, actions));
 }
@@ -35,7 +42,11 @@ function neighbourList(vm: ViewModel, view: GraphView, items: Neighbour[], colou
         {},
         h(
           "button",
-          { type: "button", onclick: () => actions.reveal(n.id) },
+          {
+            type: "button",
+            title: "Click to select · Shift-click to add to the selection",
+            onclick: (e: Event) => ((e as MouseEvent).shiftKey || (e as MouseEvent).metaKey || (e as MouseEvent).ctrlKey ? actions.addToSelection(n.id) : actions.reveal(n.id)),
+          },
           h("span", { class: "sw", style: `border-color: var(--${colour})` }),
           h("span", { class: "name" }, view.path(n.id)),
           n.count > 1 ? h("span", { class: "n" }, `×${n.count}`) : "",
@@ -45,23 +56,25 @@ function neighbourList(vm: ViewModel, view: GraphView, items: Neighbour[], colou
   );
 }
 
-function nodeDetail(vm: ViewModel, view: GraphView, sel: Extract<Selection, { type: "node" }>, actions: PanelActions): Node[] {
-  const n = vm.node(sel.id);
+type NodesSelection = Extract<Selection, { type: "nodes" }>;
+const total = (xs: Neighbour[]) => xs.reduce((s, x) => s + x.count, 0);
+
+function nodeDetail(vm: ViewModel, view: GraphView, sel: NodesSelection, id: string, actions: PanelActions): Node[] {
+  const n = vm.node(id);
   const container = n.children.length > 0;
-  const collapsed = vm.collapsed.has(sel.id);
+  const collapsed = vm.collapsed.has(id);
   const badges: Node[] = [];
-  if (!container && vm.cycles.cycleOf.has(sel.id)) badges.push(h("span", { class: "badge cycle" }, "in an import cycle"));
+  if (!container && vm.cycles.cycleOf.has(id)) badges.push(h("span", { class: "badge cycle" }, "in an import cycle"));
   if (!container && !sel.importedBy.length) badges.push(h("span", { class: "badge unused" }, "nothing depends on this"));
-  const total = (xs: Neighbour[]) => xs.reduce((s, x) => s + x.count, 0);
-  const kind = container ? `${collapsed ? "Folder (collapsed)" : "Folder"} · ${plural(vm.leafCount(sel.id), "module")}` : "Module";
+  const kind = container ? `${collapsed ? "Folder (collapsed)" : "Folder"} · ${plural(vm.leafCount(id), "module")}` : "Module";
   return [
     section(
       "Selected",
-      h("p", { class: "path" }, view.path(sel.id)),
+      h("p", { class: "path" }, view.path(id)),
       h("div", { class: "kind" }, kind),
       badges.length ? h("div", { class: "badges" }, ...badges) : "",
       container
-        ? h("div", { class: "actions" }, h("button", { class: "btn", type: "button", onclick: () => actions.toggle(sel.id) }, collapsed ? "Expand folder" : "Collapse folder"))
+        ? h("div", { class: "actions" }, h("button", { class: "btn", type: "button", onclick: () => actions.toggle(id) }, collapsed ? "Expand folder" : "Collapse folder"))
         : "",
     ),
     section(`Depends on · ${total(sel.imports)}`, neighbourList(vm, view, sel.imports, "accent", actions)),
@@ -72,6 +85,36 @@ function nodeDetail(vm: ViewModel, view: GraphView, sel: Extract<Selection, { ty
       container && !collapsed
         ? "Only dependencies that cross the folder's boundary are listed."
         : "Counts are individual dependencies merged into one arrow.",
+    ),
+  ];
+}
+
+function multiDetail(vm: ViewModel, view: GraphView, sel: NodesSelection, actions: PanelActions): Node[] {
+  const modules = sel.ids.reduce((sum, id) => sum + (vm.isContainer(id) ? vm.leafCount(id) : 1), 0);
+  return [
+    section(
+      `Selected · ${sel.ids.length}`,
+      h("div", { class: "kind" }, `${plural(modules, "module")} in all`),
+      h(
+        "ul",
+        { class: "list" },
+        ...sel.ids.map((id) =>
+          h(
+            "li",
+            { class: "picked" },
+            h("button", { type: "button", title: "Select only this", onclick: () => actions.reveal(id) }, h("span", { class: "name" }, view.path(id))),
+            h("button", { type: "button", class: "remove", title: "Remove from selection", "aria-label": `Remove ${view.path(id)} from selection`, onclick: () => actions.toggleSelected(id) }, "×"),
+          ),
+        ),
+      ),
+      h("div", { class: "actions" }, h("button", { class: "btn", type: "button", onclick: () => actions.clearSelection() }, "Clear selection")),
+    ),
+    section(`Depends on · ${total(sel.imports)}`, neighbourList(vm, view, sel.imports, "accent", actions)),
+    section(`Used by · ${total(sel.importedBy)}`, neighbourList(vm, view, sel.importedBy, "in", actions)),
+    h(
+      "p",
+      { class: "note" },
+      `Only dependencies to and from outside the selection are listed. ${sel.between ? `${plural(sel.between, "dependency")} between selected items ${sel.between === 1 ? "is" : "are"} drawn but not listed.` : "There are none between selected items."}`,
     ),
   ];
 }
@@ -147,6 +190,7 @@ function overview(vm: ViewModel, warnings: string[], actions: PanelActions): Nod
         h("li", {}, "Drag modules or whole folders. Positions are remembered."),
         h("li", {}, "Double-click a folder to collapse or expand it."),
         h("li", {}, "Click a module, folder or arrow for details."),
+        h("li", {}, "Shift-click, or shift-drag a box, to select several. Esc clears."),
       ),
     ),
     section(

@@ -123,6 +123,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, label.btn:foc
 }
 .list button:hover { background: var(--group-a); }
 .list .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.list li.picked { display: flex; gap: 2px; }
+.list li.picked button:first-child { flex: 1; min-width: 0; }
+.list button.remove { flex: none; width: auto; color: var(--muted); padding-inline: 8px; }
+.list button.remove:hover { color: var(--cycle); }
 .list .n { color: var(--muted); font-variant-numeric: tabular-nums; }
 .list li.plain { font-family: var(--mono); font-size: 12px; padding: 3px 6px; overflow-wrap: anywhere; }
 .list li.plain .arrow { color: var(--muted); }

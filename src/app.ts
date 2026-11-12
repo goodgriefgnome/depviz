@@ -15,7 +15,7 @@ import { ViewModel } from "./view/model";
 
 /** Start views at the deepest folder level that shows at most this many boxes. */
 const START_BOXES = 30;
-const HUD_IDLE = "Double-click a folder to collapse or expand it · scroll to zoom";
+const HUD_IDLE = "Double-click a folder to collapse or expand it · shift-click or shift-drag to select several · scroll to zoom";
 
 export function startApp(root: HTMLElement): void {
   const prefs = storage.loadPrefs();
@@ -185,6 +185,9 @@ export function startApp(root: HTMLElement): void {
 
   const panelActions = {
     reveal: (id: string) => view.reveal(id),
+    toggleSelected: (id: string) => view.toggleSelected(id),
+    addToSelection: (id: string) => view.addToSelection(id),
+    clearSelection: () => view.select(null),
     toggle: (id: string) => {
       view.toggle(id);
       syncControls();
@@ -261,7 +264,10 @@ export function startApp(root: HTMLElement): void {
   });
   search.addEventListener("input", () => showMatches(view.search(search.value)));
   search.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") showMatches(view.search(search.value, true));
+    if (e.key === "Enter") {
+      showMatches(view.search(search.value, true));
+      view.selectMatches();
+    }
     if (e.key === "Escape") {
       search.value = "";
       showMatches(view.search(""));
@@ -270,6 +276,12 @@ export function startApp(root: HTMLElement): void {
   function showMatches(n: number): void {
     matches.textContent = search.value.trim().length < 2 ? "" : n ? `${plural(n, "match")}` : "No matches";
   }
+
+  document.addEventListener("keydown", (e) => {
+    const t = e.target as HTMLElement;
+    if (e.key !== "Escape" || !loader.el.hidden || t.closest("input, textarea")) return;
+    view.select(null);
+  });
 
   const restyle = () => view.restyle();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", restyle);

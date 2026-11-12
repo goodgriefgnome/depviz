@@ -11,9 +11,27 @@ export interface Neighbour {
 }
 
 export type Selection =
-  | { type: "node"; id: string; imports: Neighbour[]; importedBy: Neighbour[] }
+  | {
+      type: "nodes";
+      /** Selected boxes, in the order they were picked. */
+      ids: string[];
+      /** What the selection depends on outside itself. */
+      imports: Neighbour[];
+      /** What depends on the selection from outside it. */
+      importedBy: Neighbour[];
+      /** Dependencies between different selected boxes. */
+      between: number;
+    }
   | { type: "edge"; edge: VisibleEdge }
   | null;
+
+type Picked = { type: "nodes"; ids: string[] } | { type: "edge"; source: string; target: string } | null;
+
+/** Shift, Ctrl or Cmd held: add to or remove from the selection instead of replacing it. */
+const additive = (e: cytoscape.EventObject) => {
+  const o = e.originalEvent as MouseEvent | undefined;
+  return !!o && (o.shiftKey || o.ctrlKey || o.metaKey);
+};
 
 export interface GraphViewEvents {
   /** Selection changed (also after a re-render that keeps it). */
@@ -31,7 +49,9 @@ const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matche
 export class GraphView {
   readonly cy: cytoscape.Core;
   private vm: ViewModel | undefined;
-  private selected: { type: "node"; id: string } | { type: "edge"; source: string; target: string } | null = null;
+  private selected: Picked = null;
+  /** Boxes caught by a box selection still in progress. */
+  private boxed: string[] = [];
   private searchTerm = "";
   private layoutSeq = 0;
   layoutName: LayoutName = "layered";
@@ -45,12 +65,31 @@ export class GraphView {
       container,
       style: graphStyle(),
       elements: [],
-      boxSelectionEnabled: false,
+      // With panning on, Cytoscape box-selects only while a modifier key is held: shift-drag.
+      boxSelectionEnabled: true,
       minZoom: 0.05,
       maxZoom: 3,
     });
     const cy = this.cy;
-    cy.on("tap", "node", (e) => this.select({ type: "node", id: e.target.id() }));
+    cy.on("tap", "node", (e) => {
+      const id = e.target.id() as string;
+      if (additive(e)) this.toggleSelected(id);
+      else this.selectNodes([id]);
+    });
+    cy.on("boxselect", "node", (e) => {
+      this.boxed.push(e.target.id());
+    });
+    cy.on("boxend", () => {
+      // boxselect events arrive after boxend; collect them first.
+      setTimeout(() => {
+        const ids = this.boxed;
+        this.boxed = [];
+        cy.elements().unselect();
+        if (!ids.length) return;
+        const current = this.selected?.type === "nodes" ? this.selected.ids : [];
+        this.selectNodes([...current, ...ids.filter((id) => !current.includes(id))]);
+      }, 0);
+    });
     cy.on("tap", "edge", (e) => this.select({ type: "edge", source: e.target.data("source"), target: e.target.data("target") }));
     cy.on("tap", (e) => {
       if (e.target === cy) this.select(null);
@@ -197,35 +236,75 @@ export class GraphView {
     const vm = this.vm;
     if (!vm) return;
     const shown = vm.rep(id);
-    this.select({ type: "node", id: shown });
+    this.selectNodes([shown]);
     const el = this.cy.getElementById(shown);
     if (el.nonempty()) this.cy.animate({ center: { eles: el } }, { duration: reduceMotion() ? 0 : 300 });
   }
 
-  select(sel: { type: "node"; id: string } | { type: "edge"; source: string; target: string } | null): void {
+  select(sel: Picked): void {
     this.selected = sel;
     this.applySelection();
+  }
+
+  /** Replaces the selection with these boxes (nothing if empty). */
+  selectNodes(ids: string[]): void {
+    this.select(ids.length ? { type: "nodes", ids } : null);
+  }
+
+  /** Adds a box to the selection, or removes it if it's already there. */
+  toggleSelected(id: string): void {
+    const current = this.selected?.type === "nodes" ? this.selected.ids : [];
+    this.selectNodes(current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
+  }
+
+  /** Adds a node, or the collapsed folder hiding it, to the selection. */
+  addToSelection(id: string): void {
+    const vm = this.vm;
+    if (!vm) return;
+    const shown = vm.rep(id);
+    const current = this.selected?.type === "nodes" ? this.selected.ids : [];
+    if (!current.includes(shown)) this.selectNodes([...current, shown]);
+  }
+
+  /** Selects every box with a search match. Returns how many. */
+  selectMatches(): number {
+    const ids = this.cy.nodes(".match").map((n) => n.id());
+    if (ids.length) this.selectNodes(ids);
+    return ids.length;
   }
 
   private applySelection(): void {
     const cy = this.cy;
     cy.elements().removeClass("dim out in outn inn focus");
     const sel = this.selected;
-    if (sel?.type === "node") {
-      const n = cy.getElementById(sel.id);
-      if (n.empty()) return this.clearSelection();
-      const inside = n.isParent() ? n.union(n.descendants()) : n;
+    if (sel?.type === "nodes") {
+      // Collapsing or expanding can hide a selected box or show its container instead.
+      const vm = this.vm;
+      const mapped = [...new Set(sel.ids.map((id) => (vm && cy.getElementById(id).empty() && vm.h.nodes.has(id) ? vm.rep(id) : id)))];
+      const wanted = new Set(mapped);
+      const chosen = cy.nodes().filter((n) => wanted.has(n.id())) as cytoscape.NodeCollection;
+      // A box inside another selected box adds nothing.
+      const picked = chosen.filter((n) => n.ancestors().intersection(chosen).empty()) as cytoscape.NodeCollection;
+      if (picked.empty()) return this.clearSelection();
+      sel.ids = mapped.filter((id) => picked.has(cy.getElementById(id)));
+      const inside = picked.union(picked.descendants());
       const out = cy.edges().filter((e) => inside.has(e.source()) && !inside.has(e.target()));
       const inc = cy.edges().filter((e) => inside.has(e.target()) && !inside.has(e.source()));
+      const within = cy.edges().filter((e) => inside.has(e.source()) && inside.has(e.target()));
+      const owner = (n: cytoscape.NodeSingular) => (picked.has(n) ? n : n.ancestors().intersection(picked).first()).id();
+      let between = 0;
+      within.forEach((e) => {
+        if (owner(e.source()) !== owner(e.target())) between += e.data("count") as number;
+      });
       cy.elements().addClass("dim");
-      inside.removeClass("dim");
-      n.addClass("focus");
+      inside.union(within).removeClass("dim");
+      picked.addClass("focus");
       out.removeClass("dim").addClass("out");
       out.targets().removeClass("dim").addClass("outn");
       inc.removeClass("dim").addClass("in");
       inc.sources().removeClass("dim").addClass("inn");
       inside.union(out.targets()).union(inc.sources()).ancestors().removeClass("dim");
-      this.events.onSelect({ type: "node", id: sel.id, imports: neighbours(out, "target"), importedBy: neighbours(inc, "source") });
+      this.events.onSelect({ type: "nodes", ids: sel.ids, imports: neighbours(out, "target"), importedBy: neighbours(inc, "source"), between });
     } else if (sel?.type === "edge") {
       const e = cy.edges().filter((x) => x.data("source") === sel.source && x.data("target") === sel.target);
       if (e.empty()) return this.clearSelection();
@@ -309,5 +388,7 @@ function neighbours(edges: cytoscape.EdgeCollection, end: "source" | "target"): 
 }
 
 export function plural(n: number, word: string): string {
-  return `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+  if (n === 1) return `1 ${word}`;
+  const many = /[^aeiou]y$/.test(word) ? `${word.slice(0, -1)}ies` : /(s|x|ch|sh)$/.test(word) ? `${word}es` : `${word}s`;
+  return `${n.toLocaleString()} ${many}`;
 }
